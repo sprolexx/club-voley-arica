@@ -40,7 +40,7 @@ function PagosSection({ jugadorId, playerName, pagos = [], pagosLoading, onSaveP
   }
 
   return (
-    <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-800">
+    <div className="mt-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2"><Icon name="banknote" className="w-4 h-4 text-[#1E40AF]" /><p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial de pagos</p></div>
         {!showForm && <button onClick={() => {setPagoForm({ ...PAGO_FORM_VACIO, periodo: getCurrentTrimestre() }); setShowForm(true);}} className="flex items-center gap-1.5 bg-[#1E40AF] text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-[#1C3FAA]"><Icon name="plus" className="w-3.5 h-3.5" /> Registrar pago</button>}
@@ -80,9 +80,36 @@ function PagosSection({ jugadorId, playerName, pagos = [], pagosLoading, onSaveP
   );
 }
 
-export function PlayerDetailsModal({ player, onClose, onEdit, onDelete, pagos, pagosLoading, onSavePago }) {
+// NUEVO COMPONENTE: Sección de Historial
+function HistorialSection({ historial = [], loading }) {
+  if (loading) return <p className="text-xs text-slate-400 text-center py-4">Cargando historial...</p>;
+  if (historial.length === 0) return <p className="text-xs text-slate-400 text-center py-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl mt-4">Sin cambios de estado registrados</p>;
+  
+  return (
+    <div className="space-y-2 mt-4">
+      {historial.map(h => (
+        <div key={h.id} className="p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl flex justify-between items-center">
+          <div>
+            <p className="text-sm font-bold dark:text-white flex items-center gap-2">
+              <span className="text-slate-400 line-through">{h.estado_anterior || 'Nuevo'}</span> 
+              <Icon name="arrow_down" className="w-3 h-3 -rotate-90 text-slate-400" />
+              <span className="text-[#1E40AF] dark:text-[#60A5FA] uppercase">{h.estado_nuevo}</span>
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">{h.motivo}</p>
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">{new Date(h.created_at).toLocaleDateString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function PlayerDetailsModal({ player, onClose, onEdit, onDelete, pagos, pagosLoading, onSavePago, historial, historialLoading }) {
+  const [activeTab, setActiveTab] = useState("pagos"); // "pagos" o "historial"
+
   if (!player) return null;
   const fotoPerfil = player.foto_perfil_url || player.foto_url || null;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm" onClick={onClose} />
@@ -121,7 +148,19 @@ export function PlayerDetailsModal({ player, onClose, onEdit, onDelete, pagos, p
               ))}
             </div>
           </div>
-          <PagosSection jugadorId={player.id} playerName={player.nombre_completo} pagos={pagos} pagosLoading={pagosLoading} onSavePago={onSavePago} />
+
+          {/* Tabs inferiores: Pagos / Historial */}
+          <div className="flex border-b border-slate-200 dark:border-slate-800 mt-6">
+            <button onClick={() => setActiveTab("pagos")} className={`pb-2 flex-1 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === "pagos" ? "border-b-2 border-[#1E40AF] text-[#1E40AF] dark:text-[#60A5FA] dark:border-[#60A5FA]" : "text-slate-400 hover:text-slate-600"}`}>Pagos</button>
+            <button onClick={() => setActiveTab("historial")} className={`pb-2 flex-1 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === "historial" ? "border-b-2 border-[#1E40AF] text-[#1E40AF] dark:text-[#60A5FA] dark:border-[#60A5FA]" : "text-slate-400 hover:text-slate-600"}`}>Historial</button>
+          </div>
+          
+          {activeTab === "pagos" ? (
+            <PagosSection jugadorId={player.id} playerName={player.nombre_completo} pagos={pagos} pagosLoading={pagosLoading} onSavePago={onSavePago} />
+          ) : (
+            <HistorialSection historial={historial} loading={historialLoading} />
+          )}
+          
         </div>
         <div className="p-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-950 flex-shrink-0">
           <button onClick={()=>{onClose(); onEdit(player)}} className="py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white flex flex-col items-center"><Icon name="edit" className="w-4 h-4 mb-1" /> Editar</button>
@@ -147,7 +186,7 @@ export function PlayerFormPanel({ show, editingId, form, setForm, errors, setErr
           </div>
           <div className="space-y-4"><p className="text-xs font-bold text-slate-500"><span className="bg-[#1E40AF] text-white px-2 py-0.5 rounded-full mr-2">3</span> DATOS PERSONALES</p>
             <input className={iCls("nombre_completo")} placeholder="Nombre completo *" value={form.nombre_completo} onChange={e=>{setForm(p=>({...p, nombre_completo: e.target.value})); setErrors(p=>({...p, nombre_completo: undefined}))}} />
-            <div className="grid grid-cols-2 gap-3"><input className={iCls("rut")} placeholder="RUT *" value={form.rut} onChange={e=>{setForm(p=>({...p, rut: e.target.value.replace(/[^0-9kK.-]/g, "")})); setErrors(p=>({...p, rut: undefined}))}} /><input type="date" className={iCls("fecha_nacimiento")} value={form.fecha_nacimiento} onChange={e=>setForm(p=>({...p, fecha_nacimiento: e.target.value}))} style={{colorScheme:"dark"}}/></div>
+            <div className="grid grid-cols-2 gap-3"><input className={iCls("rut")} placeholder="RUT sin puntos y con guion *" value={form.rut} onChange={e=>{setForm(p=>({...p, rut: e.target.value.replace(/[^0-9kK.-]/g, "")})); setErrors(p=>({...p, rut: undefined}))}} /><input type="date" className={iCls("fecha_nacimiento")} value={form.fecha_nacimiento} onChange={e=>setForm(p=>({...p, fecha_nacimiento: e.target.value}))} style={{colorScheme:"dark"}}/></div>
             <div className="grid grid-cols-3 gap-3">
               <select className={iCls("posicion")} value={form.posicion} onChange={e=>setForm(p=>({...p, posicion: e.target.value}))}><option value="">Posición</option>{POSICIONES.map(p=><option key={p} value={p}>{p}</option>)}</select>
               <input type="number" className={iCls("altura_cm")} placeholder="Altura cm" value={form.altura_cm} onChange={e=>setForm(p=>({...p, altura_cm: e.target.value}))} />

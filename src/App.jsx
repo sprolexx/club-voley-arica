@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
-// Importaciones de los nuevos módulos
+// Importaciones
 import { calcularEdad, getCurrentTrimestre, FORM_VACIO, BUCKET_CARNETS, BUCKET_COMPROBANTES, BUCKET_COMPRAS } from "./utils/helpers";
 import { Icon } from "./components/Icon";
 import { Toast, StatusDot } from "./components/UI";
 import { FinanceView } from "./views/FinanceView";
 import { PlayerDetailsModal, PlayerFormPanel, QuickPayModal, DeleteModal } from "./modals/PlayerModals";
 
-// Lógica de Subida de Imagenes movida fuera del componente para evitar re-renders y calmar a ESLint
 async function uploadSingleImage(file, bucket, folder, typeSuffix) {
   if (!file) return null;
   const cleanRut = (folder || "").replace(/[.\s-]/g, "");
@@ -27,8 +26,13 @@ async function uploadSingleFile(file, bucket, folder, profesionalName) {
 }
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
   const [currentView, setCurrentView] = useState("plantel");
-  const [isDarkMode, setIsDarkMode]   = useState(true);
+  const [isDarkMode, setIsDarkMode]   = useState(false); // <--- MODO CLARO POR DEFECTO
   const [players, setPlayers]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState("");
@@ -59,19 +63,43 @@ export default function App() {
   const [loadingPagosModal, setLoadingPagosModal] = useState(false);
   const [pagosJugadorModal, setPagosJugadorModal] = useState([]);
 
+  // Estados para el Historial
+  const [historialJugadorModal, setHistorialJugadorModal] = useState([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
+
   const mostrarToast = useCallback((message, type = "success") => { 
     setToast({ message, type }); 
     setTimeout(() => setToast(null), 3500); 
   }, []);
 
+  // --- SESIÓN ---
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) mostrarToast("Credenciales incorrectas", "error");
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => { await supabase.auth.signOut(); setSession(null); };
+
+  // --- FETCH DATA ---
   const fetchPlayers = useCallback(async () => {
+    if (!session) return;
     setLoading(true);
     const { data } = await supabase.from("jugadores").select("*").order("created_at", { ascending: false });
     setPlayers(data || []);
     setLoading(false);
-  }, []);
+  }, [session]);
 
   const fetchFinanzas = useCallback(async (periodo) => {
+    if (!session) return;
     setLoadingFinanzas(true);
     const [p, c] = await Promise.all([
       supabase.from("pagos").select("*").eq("periodo", periodo),
@@ -80,27 +108,35 @@ export default function App() {
     setPagosTrimestre(p.data || []); 
     setComprasTrimestre(c.data || []);
     setLoadingFinanzas(false);
-  }, []);
+  }, [session]);
 
   const fetchPagosJugador = useCallback(async (id) => {
-    if(!id) return;
+    if(!id || !session) return;
     setLoadingPagosModal(true);
     const { data } = await supabase.from("pagos").select("*").eq("jugador_id", id).order("fecha_pago", { ascending: false });
     setPagosJugadorModal(data || []);
     setLoadingPagosModal(false);
-  }, []);
+  }, [session]);
 
-  // Se quitaron las dependencias que causaban advertencias en ESLint
-  useEffect(() => { fetchPlayers(); }, []); // eslint-disable-line
+  const fetchHistorialJugador = useCallback(async (id) => {
+    if(!id || !session) return;
+    setLoadingHistorial(true);
+    const { data } = await supabase.from("historial_estados").select("*").eq("jugador_id", id).order("created_at", { ascending: false });
+    setHistorialJugadorModal(data || []);
+    setLoadingHistorial(false);
+  }, [session]);
+
+  useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
+  useEffect(() => { if(currentView === "finanzas") fetchFinanzas(trimestre); }, [currentView, trimestre, fetchFinanzas]);
   
   useEffect(() => { 
-    if(currentView === "finanzas") fetchFinanzas(trimestre); 
-  }, [currentView, trimestre]); // eslint-disable-line
-  
-  useEffect(() => { 
-    if(viewingPlayer?.id) fetchPagosJugador(viewingPlayer.id); 
-  }, [viewingPlayer]); // eslint-disable-line
+    if(viewingPlayer?.id) {
+      fetchPagosJugador(viewingPlayer.id); 
+      fetchHistorialJugador(viewingPlayer.id); // Llamamos al historial cuando abres el modal
+    }
+  }, [viewingPlayer, fetchPagosJugador, fetchHistorialJugador]);
 
+  // --- HANDLERS JUGADOR ---
   function abrirNuevo() {
     setForm(FORM_VACIO); setEditingId(null); setErrors({});
     setPhotoFiles({ perfil: null, frontal: null, trasero: null });
@@ -129,7 +165,7 @@ export default function App() {
     setSubmitting(true);
     try {
       const payload = { 
-        nombre_completo: form.nombre_completo.trim(), rut: form.rut.trim(), fecha_nacimiento: form.fecha_nacimiento, direccion: form.direccion,
+        nombre_completo: form.nombre_completo.trim(), rut: form.rut.replace(/[.\s]/g, ""), fecha_nacimiento: form.fecha_nacimiento, direccion: form.direccion,
         posicion: form.posicion || null, telefono: form.telefono || null, email_personal: form.email_personal || null, estado: form.estado || "activo",
         altura_cm: form.altura_cm ? parseInt(form.altura_cm, 10) : null,
         foto_perfil_url: form.foto_perfil_url || form.foto_url || null, carnet_frontal_url: form.carnet_frontal_url || null, carnet_trasero_url: form.carnet_trasero_url || null,
@@ -139,21 +175,58 @@ export default function App() {
       if (photoFiles.perfil) subidas.push(uploadSingleImage(photoFiles.perfil, BUCKET_CARNETS, form.rut, "perfil").then(url => payload.foto_perfil_url = url));
       if (photoFiles.frontal) subidas.push(uploadSingleImage(photoFiles.frontal, BUCKET_CARNETS, form.rut, "carnet_frontal").then(url => payload.carnet_frontal_url = url));
       if (photoFiles.trasero) subidas.push(uploadSingleImage(photoFiles.trasero, BUCKET_CARNETS, form.rut, "carnet_trasero").then(url => payload.carnet_trasero_url = url));
-      
       await Promise.all(subidas);
       if (payload.foto_url) payload.foto_url = null;
 
-      if (editingId) await supabase.from("jugadores").update(payload).eq("id", editingId);
-      else await supabase.from("jugadores").insert([payload]);
+      let jugadorGuardadoId = editingId;
+
+      if (editingId) {
+        const originalPlayer = players.find(p => p.id === editingId);
+        const { error } = await supabase.from("jugadores").update(payload).eq("id", editingId);
+        if (error) throw error;
+        
+        // Registrar Historial si el estado cambió
+        if (originalPlayer && originalPlayer.estado !== payload.estado) {
+          await supabase.from("historial_estados").insert([{
+             jugador_id: editingId,
+             estado_anterior: originalPlayer.estado || 'activo',
+             estado_nuevo: payload.estado,
+             motivo: 'Actualización manual de ficha'
+          }]);
+        }
+      } else {
+        const { data, error } = await supabase.from("jugadores").insert([payload]).select().single();
+        if (error) throw error;
+        jugadorGuardadoId = data.id;
+        
+        // Registrar creación como primer historial
+        await supabase.from("historial_estados").insert([{
+           jugador_id: jugadorGuardadoId,
+           estado_anterior: null,
+           estado_nuevo: payload.estado,
+           motivo: 'Ingreso al club'
+        }]);
+      }
       
       fetchPlayers(); setShowForm(false); mostrarToast(editingId ? "Actualizado" : "Guardado");
-    } catch { mostrarToast("Error al guardar", "error"); }
+    } catch (err) { mostrarToast(err.message || "Error al guardar", "error"); }
     setSubmitting(false);
   };
 
   const handleSoftDelete = async (player) => {
-    await supabase.from("jugadores").update({ estado: 'inactivo' }).eq("id", player.id);
-    fetchPlayers(); setDeleteConfirm(null); mostrarToast("Jugador desactivado");
+    try {
+      await supabase.from("jugadores").update({ estado: 'inactivo' }).eq("id", player.id);
+      
+      // Registrar baja en el historial
+      await supabase.from("historial_estados").insert([{
+         jugador_id: player.id,
+         estado_anterior: player.estado || 'activo',
+         estado_nuevo: 'inactivo',
+         motivo: 'Baja o eliminación de jugador'
+      }]);
+      
+      fetchPlayers(); setDeleteConfirm(null); mostrarToast("Jugador desactivado");
+    } catch { mostrarToast("Error al desactivar", "error"); }
   };
 
   const handleSavePago = async (jugadorId, pagoForm, file, profesionalName) => {
@@ -178,12 +251,33 @@ export default function App() {
     fetchFinanzas(trimestre); mostrarToast("Compra eliminada");
   };
 
-  // Blindaje anti-pantalla blanca con (p.nombre || "")
-  let displayPlayers = players.filter(p => 
-    (p?.nombre_completo || "").toLowerCase().includes(search.toLowerCase()) || 
-    (p?.rut || "").includes(search)
-  );
-  
+  if (!session) {
+    return (
+      <div className={isDarkMode ? "dark" : ""}>
+        <div className="min-h-screen bg-[#FDFDFE] dark:bg-[#030611] flex items-center justify-center p-4 font-sans transition-colors">
+          <form onSubmit={handleLogin} className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] p-8 rounded-3xl shadow-2xl w-full max-w-sm space-y-6">
+            <div className="text-center space-y-3">
+              <div className="bg-[#1E40AF] w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
+                <Icon name="volleyball" className="text-white w-8 h-8" />
+              </div>
+              <h1 className="text-2xl font-display font-black text-[#1E40AF] dark:text-white tracking-tight">CLUB UNION VOLEY</h1>
+              <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF]">Ingresa para gestionar el club</p>
+            </div>
+            <div className="space-y-4">
+              <input type="email" placeholder="Correo electrónico" className="w-full p-3.5 rounded-xl border border-[#E5E7EB] dark:border-[#1E293B] bg-gray-50 dark:bg-[#111827] dark:text-white outline-none focus:border-[#1E40AF] focus:ring-2 focus:ring-[#1E40AF]/20 transition-all text-sm" value={email} onChange={e => setEmail(e.target.value)} required />
+              <input type="password" placeholder="Contraseña" className="w-full p-3.5 rounded-xl border border-[#E5E7EB] dark:border-[#1E293B] bg-gray-50 dark:bg-[#111827] dark:text-white outline-none focus:border-[#1E40AF] focus:ring-2 focus:ring-[#1E40AF]/20 transition-all text-sm" value={password} onChange={e => setPassword(e.target.value)} required />
+            </div>
+            <button type="submit" disabled={authLoading} className="w-full py-3.5 bg-[#1E40AF] text-white font-bold rounded-xl shadow-lg hover:bg-[#1C3FAA] transition-all active:scale-95 flex justify-center">
+              {authLoading ? <Icon name="spinner" /> : "Iniciar Sesión"}
+            </button>
+            <Toast toast={toast} />
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  let displayPlayers = players.filter(p => (p?.nombre_completo || "").toLowerCase().includes(search.toLowerCase()) || (p?.rut || "").includes(search));
   displayPlayers.sort((a, b) => {
     let valA = sortBy === "nombre" ? (a?.nombre_completo || "").toLowerCase() : calcularEdad(a?.fecha_nacimiento);
     let valB = sortBy === "nombre" ? (b?.nombre_completo || "").toLowerCase() : calcularEdad(b?.fecha_nacimiento);
@@ -206,44 +300,44 @@ export default function App() {
 
   return (
     <div className={isDarkMode ? "dark" : ""}>
-      <div className="min-h-screen bg-[#FDFDFE] dark:bg-[#030611] text-[#1F2937] dark:text-[#E5E7EB] font-sans pb-20">
-        
-        <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#030611]/95 border-b border-[#E5E7EB] dark:border-[#1E293B] p-4">
+      <div className="min-h-screen bg-[#FDFDFE] dark:bg-[#030611] text-[#1F2937] dark:text-[#E5E7EB] font-sans pb-20 transition-colors">
+        <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#030611]/95 border-b border-[#E5E7EB] dark:border-[#1E293B] p-4 transition-colors">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-            <h1 className="text-2xl font-black text-[#1E40AF] dark:text-white tracking-tighter flex items-center gap-2"><div className="bg-[#1E40AF] p-1.5 rounded-lg"><Icon name="volleyball" className="w-5 h-5 text-white"/></div> CLUB UNION VOLEY</h1>
+            <h1 className="text-2xl font-black font-display text-[#1E40AF] dark:text-white tracking-tighter flex items-center gap-2"><div className="bg-[#1E40AF] p-1.5 rounded-lg"><Icon name="volleyball" className="w-5 h-5 text-white"/></div> CLUB UNION VOLEY</h1>
             <div className="flex bg-[#F3F4F6] dark:bg-[#0B1120] p-1 rounded-xl border border-[#E5E7EB] dark:border-[#1E293B]">
-                <button onClick={() => setCurrentView("plantel")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "plantel" ? "bg-[#1E40AF] text-white" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Plantel</button>
-                <button onClick={() => setCurrentView("finanzas")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "finanzas" ? "bg-[#1E40AF] text-white" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Finanzas</button>
+                <button onClick={() => setCurrentView("plantel")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "plantel" ? "bg-[#1E40AF] text-white shadow-sm" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Plantel</button>
+                <button onClick={() => setCurrentView("finanzas")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "finanzas" ? "bg-[#1E40AF] text-white shadow-sm" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Finanzas</button>
             </div>
             <div className="flex gap-2 w-full sm:w-auto justify-end">
-              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-[#F3F4F6] dark:bg-[#0B1120] text-[#1E40AF] rounded-lg"><Icon name={isDarkMode?"sun":"moon"} className="w-5 h-5"/></button>
-              <button onClick={abrirNuevo} className="px-4 py-2 bg-[#1E40AF] text-white font-bold rounded-lg flex items-center gap-2 shadow-lg"><Icon name="plus" className="w-4 h-4"/> <span className="hidden sm:block">Nuevo</span></button>
+              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 bg-[#F3F4F6] dark:bg-[#0B1120] text-[#1E40AF] rounded-xl hover:scale-105 transition-transform"><Icon name={isDarkMode?"sun":"moon"} className="w-5 h-5"/></button>
+              <button onClick={abrirNuevo} className="px-4 py-2 bg-[#1E40AF] text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:bg-[#1C3FAA] transition-colors"><Icon name="plus" className="w-4 h-4"/> <span className="hidden sm:block">Nuevo</span></button>
+              <button onClick={handleLogout} className="p-2.5 bg-red-50 dark:bg-red-500/10 text-red-600 rounded-xl hover:bg-red-100 transition-colors" title="Cerrar sesión"><Icon name="close" className="w-5 h-5"/></button>
             </div>
           </div>
         </header>
 
         <main className="max-w-6xl mx-auto p-4 sm:p-6">
           {currentView === "plantel" && (
-            <>
+            <div style={{ animation: "fadeIn .35s ease" }}>
               <div className="flex flex-col sm:flex-row gap-4 justify-between mb-6">
                 <div className="flex gap-2">
-                  <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] px-4 py-2 rounded-xl text-sm font-bold text-[#6B7280]">Total: <span className="text-[#1E40AF] dark:text-white">{players.length}</span></div>
-                  <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] px-4 py-2 rounded-xl text-sm font-bold text-[#6B7280]">Edad: <span className="text-[#1E40AF] dark:text-white">{promEdad}</span></div>
+                  <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] px-4 py-2 rounded-xl text-sm font-bold text-[#6B7280] shadow-sm transition-colors">Total: <span className="text-[#1E40AF] dark:text-white">{players.length}</span></div>
+                  <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] px-4 py-2 rounded-xl text-sm font-bold text-[#6B7280] shadow-sm transition-colors">Edad: <span className="text-[#1E40AF] dark:text-white">{promEdad}</span></div>
                 </div>
                 <div className="flex gap-2 flex-1 sm:justify-end relative">
-                  <div className="relative w-full sm:w-80">
-                    <Icon name="search" className="absolute left-3 top-3 text-gray-400 w-5 h-5"/>
-                    <input className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-xl outline-none focus:border-[#1E40AF] text-sm" placeholder="Buscar jugador..." value={search} onChange={e=>setSearch(e.target.value)} />
+                  <div className="relative w-full sm:w-80 shadow-sm">
+                    <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5"/>
+                    <input className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-xl outline-none focus:border-[#1E40AF] text-sm transition-colors" placeholder="Buscar jugador..." value={search} onChange={e=>setSearch(e.target.value)} />
                   </div>
                   <div className="relative">
-                    <button onClick={()=>setShowFilterMenu(!showFilterMenu)} className="px-4 py-2.5 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-[#111827]"><Icon name="filter" className="w-4 h-4"/> <span className="hidden sm:inline">Ordenar</span></button>
+                    <button onClick={()=>setShowFilterMenu(!showFilterMenu)} className="px-4 py-2.5 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-[#111827] shadow-sm transition-colors"><Icon name="filter" className="w-4 h-4"/> <span className="hidden sm:inline">Ordenar</span></button>
                     {showFilterMenu && (
-                      <div className="absolute right-0 top-12 w-56 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] shadow-2xl rounded-xl p-4 z-40">
+                      <div className="absolute right-0 top-12 w-56 bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] shadow-2xl rounded-xl p-4 z-40 transition-colors">
                         <p className="text-[10px] font-black text-gray-500 mb-2">ORDENAR POR</p>
-                        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm mb-2 outline-none"><option value="nombre">Nombre</option><option value="edad">Edad</option></select>
-                        <select value={sortOrder} onChange={e=>setSortOrder(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm mb-4 outline-none"><option value="asc">Ascendente (A-Z)</option><option value="desc">Descendente (Z-A)</option></select>
+                        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm mb-2 outline-none transition-colors"><option value="nombre">Nombre</option><option value="edad">Edad</option></select>
+                        <select value={sortOrder} onChange={e=>setSortOrder(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm mb-4 outline-none transition-colors"><option value="asc">Ascendente (A-Z)</option><option value="desc">Descendente (Z-A)</option></select>
                         <p className="text-[10px] font-black text-gray-500 mb-2">AGRUPAR POR</p>
-                        <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm outline-none"><option value="none">Sin agrupar</option><option value="posicion">Posición</option></select>
+                        <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} className="w-full p-2 rounded-lg bg-gray-50 dark:bg-[#111827] dark:border-[#1E293B] border text-sm outline-none transition-colors"><option value="none">Sin agrupar</option><option value="posicion">Posición</option></select>
                       </div>
                     )}
                   </div>
@@ -253,38 +347,43 @@ export default function App() {
               {loading ? <div className="py-20 flex justify-center"><Icon name="spinner" className="w-8 h-8 text-[#1E40AF]"/></div> : 
                 Object.keys(groupedPlayers).map(group => (
                   <div key={group} className="mb-8">
-                    {groupBy !== "none" && <h2 className="text-lg font-black mb-3 text-[#1E40AF] dark:text-[#60A5FA] border-b border-gray-200 dark:border-gray-800 pb-2">{group} <span className="text-gray-400 text-sm font-normal">({groupedPlayers[group].length})</span></h2>}
-                    <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-2xl overflow-hidden shadow-sm">
+                    {groupBy !== "none" && <h2 className="text-lg font-black mb-3 text-[#1E40AF] dark:text-[#60A5FA] border-b border-[#E5E7EB] dark:border-[#1E293B] pb-2 transition-colors">{group} <span className="text-gray-400 text-sm font-normal">({groupedPlayers[group].length})</span></h2>}
+                    <div className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] rounded-2xl overflow-hidden shadow-lg transition-colors">
                        {groupedPlayers[group].map(p => (
-                         <div key={p.id} className="p-4 border-b border-[#F3F4F6] dark:border-[#1E293B] flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#111827] transition-colors">
+                         <div key={p.id} className="p-4 border-b border-[#F3F4F6] dark:border-[#1E293B] flex items-center justify-between hover:bg-[#F9FAFB] dark:hover:bg-[#111827] transition-colors cursor-pointer" onClick={()=>{setViewingPlayer(p)}}>
                            <div className="flex items-center gap-4">
                              <StatusDot status={p?.estado} />
-                             <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-800 overflow-hidden hidden sm:block">
+                             <div className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E293B] overflow-hidden hidden sm:block shadow-sm">
                                {(p?.foto_perfil_url || p?.foto_url) ? <img src={p.foto_perfil_url || p.foto_url} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center"><Icon name="user" className="w-5 h-5 text-gray-400"/></div>}
                              </div>
                              <div>
-                               <p className="font-bold text-[#111827] dark:text-white text-sm">{p?.nombre_completo}</p>
-                               <p className="text-xs text-[#6B7280]">{p?.rut} • {calcularEdad(p?.fecha_nacimiento)} años {p?.posicion && `• ${p.posicion}`}</p>
+                               <p className="font-bold text-[#111827] dark:text-white text-sm group-hover:text-[#1E40AF] transition-colors">{p?.nombre_completo}</p>
+                               <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mt-0.5">{p?.rut} • {calcularEdad(p?.fecha_nacimiento)} años {p?.posicion && `• ${p.posicion}`}</p>
                              </div>
                            </div>
                            <div className="flex gap-2">
-                             <button onClick={()=>{setViewingPlayer(p)}} className="px-3 py-1.5 text-sm font-bold text-[#1E40AF] dark:text-[#60A5FA] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 rounded-lg hover:bg-[#DBEAFE]">Ver Perfil</button>
+                             <button className="px-3 py-1.5 text-sm font-bold text-[#1E40AF] dark:text-[#60A5FA] bg-[#EFF6FF] dark:bg-[#1E3A8A]/30 rounded-lg hover:bg-[#DBEAFE] transition-colors">Ver Perfil</button>
                            </div>
                          </div>
                        ))}
                     </div>
                   </div>
               ))}
-            </>
+            </div>
           )}
 
           {currentView === "finanzas" && (
-            <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setQuickPayPlayer} />
+            <div style={{ animation: "fadeIn .35s ease" }}>
+              <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setQuickPayPlayer} />
+            </div>
           )}
         </main>
 
         <PlayerFormPanel show={showForm} editingId={editingId} form={form} setForm={setForm} errors={errors} setErrors={setErrors} previews={photoPreviews} onPhotoChange={handlePhotoChange} onSubmit={handleSaveJugador} onClose={() => setShowForm(false)} submitting={submitting} />
-        <PlayerDetailsModal player={viewingPlayer} onClose={() => setViewingPlayer(null)} onEdit={abrirEdicion} onDelete={setDeleteConfirm} pagos={pagosJugadorModal} pagosLoading={loadingPagosModal} onSavePago={handleSavePago} />
+        
+        {/* Aquí pasamos el historial como props */}
+        <PlayerDetailsModal player={viewingPlayer} onClose={() => setViewingPlayer(null)} onEdit={abrirEdicion} onDelete={setDeleteConfirm} pagos={pagosJugadorModal} pagosLoading={loadingPagosModal} onSavePago={handleSavePago} historial={historialJugadorModal} historialLoading={loadingHistorial} />
+        
         <QuickPayModal player={quickPayPlayer} trimestre={trimestre} onClose={() => setQuickPayPlayer(null)} onSave={handleSavePago} />
         <DeleteModal player={deleteConfirm} onConfirm={handleSoftDelete} onCancel={() => setDeleteConfirm(null)} />
         <Toast toast={toast} />
