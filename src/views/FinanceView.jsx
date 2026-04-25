@@ -87,7 +87,13 @@ export function FinanceView({ players = [], trimestre, setTrimestre, pagosTrimes
                   <p className="font-bold text-sm text-[#111827] dark:text-white">{p.nombre_completo}</p>
                 </div>
                 {pagoMap[p.id] ? (
-                  <span className="px-3 py-1.5 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 text-xs font-bold rounded-lg border border-emerald-200 dark:border-emerald-500/30">Pagado ✓</span>
+                  <button 
+                    onClick={() => onQuickPay(p)} 
+                    className="px-4 py-1.5 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 text-xs font-bold rounded-lg border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-200 transition-colors shadow-sm flex items-center gap-1"
+                    title="Ver detalles de pago"
+                  >
+                    Pagado <Icon name="eye" className="w-3 h-3 ml-1" />
+                  </button>
                 ) : (
                   <button onClick={() => onQuickPay(p)} className="px-4 py-1.5 bg-amber-500 text-black text-xs font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-sm">Cobrar</button>
                 )}

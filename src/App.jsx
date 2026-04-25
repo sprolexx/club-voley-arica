@@ -278,6 +278,7 @@ export default function App() {
   }
 
   let displayPlayers = players.filter(p => (p?.nombre_completo || "").toLowerCase().includes(search.toLowerCase()) || (p?.rut || "").includes(search));
+  
   displayPlayers.sort((a, b) => {
     let valA = sortBy === "nombre" ? (a?.nombre_completo || "").toLowerCase() : calcularEdad(a?.fecha_nacimiento);
     let valB = sortBy === "nombre" ? (b?.nombre_completo || "").toLowerCase() : calcularEdad(b?.fecha_nacimiento);
@@ -286,14 +287,37 @@ export default function App() {
     return 0;
   });
 
-  let groupedPlayers = { "Todos": displayPlayers };
+  const CATEGORIAS_PRINCIPALES = ["Armadores", "Puntas", "Centros", "Opuestos", "Líberos"];
+  
+  const getCategoriaName = (posString) => {
+    if (!posString) return "Sin Posición";
+    if (posString.includes("Armador")) return "Armadores";
+    if (posString.includes("Punta")) return "Puntas";
+    if (posString.includes("Central")) return "Centros";
+    if (posString.includes("Opuesto")) return "Opuestos";
+    if (posString.includes("Líbero")) return "Líberos";
+    return "Otros";
+  };
+
+  let groupedPlayers = {};
   if (groupBy === "posicion") {
-    groupedPlayers = {};
+    // Inicializamos los 5 buckets vacíos para mantener el orden
+    CATEGORIAS_PRINCIPALES.forEach(cat => groupedPlayers[cat] = []);
+    groupedPlayers["Sin Posición"] = [];
+
     displayPlayers.forEach(p => {
-      const pos = p?.posicion || "Sin posición";
-      if (!groupedPlayers[pos]) groupedPlayers[pos] = [];
-      groupedPlayers[pos].push(p);
+      // Solo tomamos la primera posición (Principal)
+      const posPrincipal = p.posicion && p.posicion.length > 0 ? p.posicion[0] : null;
+      const cat = getCategoriaName(posPrincipal);
+      if (groupedPlayers[cat]) groupedPlayers[cat].push(p);
     });
+
+    // Limpiamos las listas vacías para que no estorben
+    Object.keys(groupedPlayers).forEach(k => {
+      if (groupedPlayers[k].length === 0) delete groupedPlayers[k];
+    });
+  } else {
+    groupedPlayers = { "Todos los Jugadores": displayPlayers };
   }
 
   const promEdad = players.length ? Math.round(players.reduce((acc, p) => acc + (Number(calcularEdad(p?.fecha_nacimiento)) || 0), 0) / players.length) : 0;
@@ -374,7 +398,7 @@ export default function App() {
 
           {currentView === "finanzas" && (
             <div style={{ animation: "fadeIn .35s ease" }}>
-              <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setQuickPayPlayer} />
+              <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setViewingPlayer} />
             </div>
           )}
         </main>
