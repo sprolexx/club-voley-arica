@@ -6,7 +6,7 @@ import { calcularEdad, getCurrentTrimestre, FORM_VACIO, BUCKET_CARNETS, BUCKET_C
 import { Icon } from "./components/Icon";
 import { Toast, StatusDot } from "./components/UI";
 import { FinanceView } from "./views/FinanceView";
-import { PlayerDetailsModal, PlayerFormPanel, QuickPayModal, DeleteModal } from "./modals/PlayerModals";
+import { PlayerDetailsModal, PlayerFormPanel, PaymentModal, DeleteModal } from "./modals/PlayerModals";
 
 async function uploadSingleImage(file, bucket, folder, typeSuffix) {
   if (!file) return null;
@@ -53,7 +53,7 @@ export default function App() {
   
   const [viewingPlayer, setViewingPlayer] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [quickPayPlayer, setQuickPayPlayer] = useState(null);
+  const [paymentModalConfig, setPaymentModalConfig] = useState(null); // Para el PaymentModal
   
   const [trimestre, setTrimestre]               = useState(getCurrentTrimestre());
   const [pagosTrimestre, setPagosTrimestre]     = useState([]);
@@ -229,13 +229,49 @@ export default function App() {
     } catch { mostrarToast("Error al desactivar", "error"); }
   };
 
-  const handleSavePago = async (jugadorId, pagoForm, file, profesionalName) => {
+  const handleSavePago = async (jugadorId, pagoForm, file, profesionalName, editPagoId = null) => {
+
     try {
+      // Si suben una foto nueva, la guardamos
       let url = file ? await uploadSingleFile(file, BUCKET_COMPROBANTES, jugadorId, profesionalName) : null;
-      await supabase.from("pagos").insert([{ jugador_id: jugadorId, periodo: pagoForm.periodo, monto: parseInt(pagoForm.monto), fecha_pago: pagoForm.fecha_pago, comprobante_url: url }]);
-      fetchFinanzas(trimestre); if (viewingPlayer?.id === jugadorId) fetchPagosJugador(jugadorId);
-      mostrarToast("Pago registrado"); return true;
-    } catch { mostrarToast("Error al registrar el pago", "error"); return false; }
+      
+      const payload = { 
+        jugador_id: jugadorId, 
+        periodo: pagoForm.periodo, 
+        monto: parseInt(pagoForm.monto), 
+        fecha_pago: pagoForm.fecha_pago 
+      };
+      
+      // Solo sobreescribimos la URL del comprobante si subieron uno nuevo
+      if (url) payload.comprobante_url = url;
+
+      if (editPagoId) {
+        // MODO EDICIÓN: Actualiza el registro existente
+        await supabase.from("pagos").update(payload).eq("id", editPagoId);
+      } else {
+        // MODO CREACIÓN: Inserta uno nuevo
+        await supabase.from("pagos").insert([payload]);
+      }
+
+      fetchFinanzas(trimestre); 
+      if (viewingPlayer?.id === jugadorId) fetchPagosJugador(jugadorId);
+      mostrarToast(editPagoId ? "Pago actualizado correctamente" : "Pago registrado exitosamente"); 
+      return true;
+    } catch { 
+      mostrarToast("Error al procesar el pago", "error"); 
+      return false; 
+    }
+  };
+
+  const handleDeletePago = async (id) => {
+    try {
+      await supabase.from("pagos").delete().eq("id", id);
+      fetchFinanzas(trimestre);
+      if (viewingPlayer?.id) fetchPagosJugador(viewingPlayer.id);
+      mostrarToast("Pago eliminado correctamente");
+    } catch {
+      mostrarToast("Error al eliminar", "error");
+    }
   };
 
   const handleSaveCompra = async (compra, file, profesionalName) => {
@@ -398,17 +434,19 @@ export default function App() {
 
           {currentView === "finanzas" && (
             <div style={{ animation: "fadeIn .35s ease" }}>
-              <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setViewingPlayer} />
+              <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setPaymentModalConfig} />
             </div>
           )}
         </main>
 
         <PlayerFormPanel show={showForm} editingId={editingId} form={form} setForm={setForm} errors={errors} setErrors={setErrors} previews={photoPreviews} onPhotoChange={handlePhotoChange} onSubmit={handleSaveJugador} onClose={() => setShowForm(false)} submitting={submitting} />
         
-        {/* Aquí pasamos el historial como props */}
-        <PlayerDetailsModal player={viewingPlayer} onClose={() => setViewingPlayer(null)} onEdit={abrirEdicion} onDelete={setDeleteConfirm} pagos={pagosJugadorModal} pagosLoading={loadingPagosModal} onSavePago={handleSavePago} historial={historialJugadorModal} historialLoading={loadingHistorial} />
+        {/* Modal de Detalles (Actualizado sin OnSavePago ya que es Solo Lectura) */}
+        <PlayerDetailsModal player={viewingPlayer} onClose={() => setViewingPlayer(null)} onEdit={abrirEdicion} onDelete={setDeleteConfirm} pagos={pagosJugadorModal} pagosLoading={loadingPagosModal} historial={historialJugadorModal} historialLoading={loadingHistorial} />
         
-        <QuickPayModal player={quickPayPlayer} trimestre={trimestre} onClose={() => setQuickPayPlayer(null)} onSave={handleSavePago} />
+      {/* EL NUEVO MODAL DE PAGOS */}
+        <PaymentModal config={paymentModalConfig} trimestreActual={trimestre} onClose={() => setPaymentModalConfig(null)} onSave={handleSavePago} onDelete={handleDeletePago} />
+
         <DeleteModal player={deleteConfirm} onConfirm={handleSoftDelete} onCancel={() => setDeleteConfirm(null)} />
         <Toast toast={toast} />
       </div>

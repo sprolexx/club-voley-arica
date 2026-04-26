@@ -21,103 +21,35 @@ function ImageUploadField({ label, preview, onChange, error, hint = "Seleccionar
   );
 }
 
-export function PagosSection({ jugadorId, playerName, pagos = [], pagosLoading, onSavePago }) {
-  const comprobanteRef = useRef(null);
-  const [showForm, setShowForm] = useState(false);
-  const [pagoForm, setPagoForm] = useState({ ...PAGO_FORM_VACIO, periodos: [] });
-  const [pagoFile, setPagoFile] = useState(null);
-  const [pagoPreview, setPagoPreview] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  const trimestresPagados = pagos.map(p => p.periodo);
-
-  const togglePeriodo = (t) => {
-    if (trimestresPagados.includes(t)) return;
-    setPagoForm(prev => {
-      const isSel = prev.periodos.includes(t);
-      return { ...prev, periodos: isSel ? prev.periodos.filter(x => x !== t) : [...prev.periodos, t] };
-    });
-  };
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (pagoForm.periodos.length === 0 || !pagoForm.monto || !pagoForm.fecha_pago) return;
-    setSaving(true);
-    
-    const montoPorTrimestre = Math.floor(parseInt(pagoForm.monto) / pagoForm.periodos.length);
-    let errorOcurrio = false;
-
-    for (const trimestre of pagoForm.periodos) {
-      const dataPago = { periodo: trimestre, monto: montoPorTrimestre, fecha_pago: pagoForm.fecha_pago };
-      const nombreDescarga = `Voucher_${playerName || 'Jugador'}_${trimestre}.jpg`;
-      const ok = await onSavePago(jugadorId, dataPago, pagoFile, nombreDescarga);
-      if (!ok) errorOcurrio = true;
-    }
-
-    setSaving(false);
-    if (!errorOcurrio) { setShowForm(false); setPagoFile(null); setPagoPreview(null); }
-  }
-
+// 1. SECCIÓN DE PAGOS EN EL PERFIL (AHORA DE SOLO LECTURA)
+export function PagosSection({ playerName, pagos = [], pagosLoading }) {
+  if (pagosLoading) return <p className="text-xs text-slate-400 text-center py-4">Cargando pagos...</p>;
+  if (pagos.length === 0) return <p className="text-xs text-slate-400 text-center py-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl mt-4">Sin pagos registrados</p>;
+  
   return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2"><Icon name="banknote" className="w-4 h-4 text-[#1E40AF]" /><p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial de pagos</p></div>
-        {!showForm && <button onClick={() => {setPagoForm({ ...PAGO_FORM_VACIO, periodos: [] }); setShowForm(true);}} className="flex items-center gap-1.5 bg-[#1E40AF] text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-[#1C3FAA]"><Icon name="plus" className="w-3.5 h-3.5" /> Registrar pago</button>}
+    <div className="mt-4 space-y-2">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon name="banknote" className="w-4 h-4 text-[#1E40AF]" />
+        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Historial de pagos</p>
       </div>
-      {showForm && (
-        <form onSubmit={handleSubmit} className="mb-4 bg-[#EFF6FF] dark:bg-[#1E3A8A]/10 border border-[#BFDBFE] dark:border-[#1E3A8A] rounded-2xl p-4 space-y-3">
-           <div className="flex justify-between items-center"><p className="text-sm font-bold text-[#1E40AF] dark:text-[#60A5FA] flex items-center gap-1.5"><Icon name="receipt" className="w-4 h-4" /> Pago Múltiple</p><button type="button" onClick={()=>setShowForm(false)} className="text-slate-400"><Icon name="close" className="w-4 h-4"/></button></div>
-           
-           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3">
-            <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase">Selecciona los trimestres:</p>
-            <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto" style={{scrollbarWidth:'thin'}}>
-                {TRIMESTRES.map(t => {
-                  const yaPago = trimestresPagados.includes(t);
-                  const isSel = pagoForm.periodos.includes(t);
-                  return (
-                    <label key={t} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${yaPago ? 'opacity-50' : 'hover:bg-slate-50 dark:hover:bg-slate-800'} ${isSel ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                      <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#1E40AF]" checked={isSel || yaPago} disabled={yaPago} onChange={() => togglePeriodo(t)} />
-                      <span className={`text-sm font-semibold ${yaPago ? 'text-emerald-600' : 'text-slate-700 dark:text-slate-300'}`}>{t} {yaPago && "(Pagado)"}</span>
-                    </label>
-                  )
-                })}
-            </div>
+      {pagos.map(p => (
+        <div key={p.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm">
+          <div>
+            <p className="text-sm font-bold dark:text-white">{p.periodo}</p>
+            <p className="text-xs text-slate-500">{formatPeso(p.monto)} • {formatearFecha(p.fecha_pago)}</p>
           </div>
-
-           <div className="grid grid-cols-2 gap-3">
-             <input type="number" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none" placeholder="Monto TOTAL" value={pagoForm.monto} onChange={e=>setPagoForm({...pagoForm, monto: e.target.value})} required/>
-             <input type="date" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none" style={{colorScheme: 'dark'}} value={pagoForm.fecha_pago} onChange={e=>setPagoForm({...pagoForm, fecha_pago: e.target.value})} required/>
-           </div>
-           <div onClick={()=>comprobanteRef.current?.click()} className="flex items-center gap-3 p-3 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer">
-              {pagoPreview ? <img src={pagoPreview} className="w-10 h-10 rounded-lg object-cover" /> : <div className="w-10 h-10 bg-slate-200 dark:bg-slate-800 rounded-lg flex items-center justify-center"><Icon name="paperclip" className="w-4 h-4 text-slate-400"/></div>}
-              <p className="text-xs text-slate-500">{pagoPreview ? "Comprobante listo" : "Adjuntar voucher (opcional)"}</p>
-           </div>
-           <input ref={comprobanteRef} type="file" accept="image/*" className="hidden" onChange={e => {if(e.target.files[0]) {setPagoFile(e.target.files[0]); setPagoPreview(URL.createObjectURL(e.target.files[0]))}}} />
-           <button type="submit" disabled={saving || pagoForm.periodos.length === 0} className="w-full py-2.5 rounded-xl bg-[#1E40AF] hover:bg-[#1C3FAA] disabled:opacity-50 text-white text-xs font-bold">{saving ? "Procesando..." : "Confirmar Pagos"}</button>
-        </form>
-      )}
-      {pagosLoading ? <p className="text-xs text-slate-400 text-center py-4">Cargando...</p> : pagos.length === 0 ? <p className="text-xs text-slate-400 text-center py-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">Sin pagos</p> : (
-        <div className="space-y-2">
-          {pagos.map(p => (
-            <div key={p.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl">
-              <div><p className="text-sm font-bold dark:text-white">{p.periodo}</p><p className="text-xs text-slate-500">{formatPeso(p.monto)} • {formatearFecha(p.fecha_pago)}</p></div>
-              <div className="flex gap-1.5">
-                {/* Botón para editar el monto de un pago */}
-                <button onClick={() => {
-                  const newMonto = prompt("Ingresa el nuevo monto para " + p.periodo + ":", p.monto);
-                  if(newMonto && !isNaN(newMonto)) onSavePago(jugadorId, { ...p, monto: parseInt(newMonto) }, null, null, p.id);
-                }} className="p-1.5 bg-amber-50 dark:bg-amber-900/30 text-amber-600 rounded-lg"><Icon name="edit" className="w-3.5 h-3.5"/></button>
-                {p.comprobante_url && (
-                  <>
-                    <a href={p.comprobante_url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 rounded-lg"><Icon name="eye" className="w-3.5 h-3.5"/></a>
-                    <button onClick={()=>descargarImagen(p.comprobante_url, `Voucher_${playerName}_${p.periodo}.jpg`)} className="p-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg"><Icon name="download" className="w-3.5 h-3.5"/></button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
+          <div className="flex gap-1.5">
+            {p.comprobante_url ? (
+              <>
+                <a href={p.comprobante_url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 rounded-lg hover:bg-sky-100 transition-colors" title="Ver Voucher"><Icon name="eye" className="w-3.5 h-3.5"/></a>
+                <button onClick={()=>descargarImagen(p.comprobante_url, `Voucher_${playerName}_${p.periodo}.jpg`)} className="p-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-300 transition-colors" title="Descargar Voucher"><Icon name="download" className="w-3.5 h-3.5"/></button>
+              </>
+            ) : (
+              <span className="text-[10px] text-slate-400 px-2 font-medium">Sin voucher</span>
+            )}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -292,18 +224,30 @@ export function PlayerFormPanel({ show, editingId, form, setForm, errors, setErr
   );
 }
 
-export function QuickPayModal({ player, trimestre, onSave, onClose, pagosExistentes = [] }) {
-  const [form, setForm] = useState({ ...PAGO_FORM_VACIO, periodos: [] });
-  const [file, setFile] = useState(null), [preview, setPreview] = useState(null), [saving, setSaving] = useState(false);
+// 2. EL NUEVO MODAL DE GESTIÓN DE PAGOS (SE ABRE DESDE FINANZAS)
+export function PaymentModal({ config, trimestreActual, onSave, onDelete, onClose }) {
+  if (!config) return null;
+  const { player, pagoAEditar } = config;
+  
+  const [form, setForm] = useState({
+    // Si estamos editando, precargamos el periodo de ese pago. Si es nuevo, usamos el trimestre que la tía está mirando.
+    periodos: pagoAEditar ? [pagoAEditar.periodo] : [trimestreActual], 
+    monto: pagoAEditar ? pagoAEditar.monto.toString() : "", 
+    fecha_pago: pagoAEditar ? pagoAEditar.fecha_pago : new Date().toISOString().split("T")[0]
+  });
+  
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(pagoAEditar?.comprobante_url || null);
+  const [saving, setSaving] = useState(false);
   const ref = useRef(null);
-  if (!player) return null;
-
-  // Extraemos los periodos que el jugador ya pagó
-  const trimestresPagados = pagosExistentes.map(p => p.periodo);
 
   const togglePeriodo = (t) => {
-    if (trimestresPagados.includes(t)) return; // Bloquear si ya pagó
     setForm(prev => {
+      if (pagoAEditar) {
+        // MODO EDICIÓN: Solo permitimos seleccionar UN mes para corregir el registro actual.
+        return { ...prev, periodos: [t] };
+      }
+      // MODO CREACIÓN: Permitimos seleccionar múltiples meses a la vez.
       const isSel = prev.periodos.includes(t);
       return { ...prev, periodos: isSel ? prev.periodos.filter(x => x !== t) : [...prev.periodos, t] };
     });
@@ -313,54 +257,94 @@ export function QuickPayModal({ player, trimestre, onSave, onClose, pagosExisten
     e.preventDefault(); 
     if(form.periodos.length === 0 || !form.monto || !form.fecha_pago) return;
     setSaving(true);
-    const montoInd = Math.floor(parseInt(form.monto) / form.periodos.length);
-    for (const t of form.periodos) {
-      const data = { periodo: t, monto: montoInd, fecha_pago: form.fecha_pago };
-      const nDesc = `Voucher_${player.nombre_completo || 'Jugador'}_${t}.jpg`;
-      await onSave(player.id, data, file, nDesc);
+    
+    if (pagoAEditar) {
+      // PROCESO DE EDICIÓN
+      const data = { periodo: form.periodos[0], monto: parseInt(form.monto), fecha_pago: form.fecha_pago };
+      const nDesc = `Voucher_${player.nombre_completo}_${form.periodos[0]}.jpg`;
+      await onSave(player.id, data, file, nDesc, pagoAEditar.id);
+    } else {
+      // PROCESO DE CREACIÓN (Múltiple)
+      const montoInd = Math.floor(parseInt(form.monto) / form.periodos.length);
+      for (const t of form.periodos) {
+        const data = { periodo: t, monto: montoInd, fecha_pago: form.fecha_pago };
+        const nDesc = `Voucher_${player.nombre_completo}_${t}.jpg`;
+        await onSave(player.id, data, file, nDesc);
+      }
     }
-    setSaving(false); onClose();
+    setSaving(false); 
+    onClose();
   }
-  
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-sm p-5 shadow-2xl">
-        <div className="flex justify-between items-center mb-4"><h3 className="font-bold dark:text-white">Cobro Rápido</h3><button onClick={onClose}><Icon name="close" className="text-slate-400"/></button></div>
-        <p className="text-sm text-slate-500 mb-4">{player.nombre_completo}</p>
-        <form id="qp" onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Lista Vertical de Trimestres */}
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="font-bold dark:text-white flex items-center gap-2">
+            <Icon name="receipt" className="w-5 h-5 text-[#1E40AF]" />
+            {pagoAEditar ? "Editar Registro" : "Registrar Pago"}
+          </h3>
+          <button onClick={onClose}><Icon name="close" className="text-slate-400 hover:text-slate-700"/></button>
+        </div>
+        
+        <p className="text-sm font-bold text-[#1E40AF] dark:text-[#60A5FA] mb-4 bg-[#EFF6FF] dark:bg-[#1E3A8A]/20 p-2 rounded-lg text-center">
+          {player.nombre_completo}
+        </p>
+
+        <form id="payment-form" onSubmit={handleSubmit} className="space-y-4">
           <div className="bg-slate-50 dark:bg-[#0B1120] border border-slate-200 dark:border-slate-800 rounded-xl p-3">
-            <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase">Selecciona los trimestres:</p>
+            <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase">
+              {pagoAEditar ? "Corregir Trimestre:" : "Seleccionar Trimestres:"}
+            </p>
             <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto" style={{scrollbarWidth:'thin'}}>
                 {TRIMESTRES.map(t => {
-                  const yaPago = trimestresPagados.includes(t);
                   const isSel = form.periodos.includes(t);
                   return (
-                    <label key={t} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${yaPago ? 'opacity-50' : 'hover:bg-slate-100 dark:hover:bg-slate-800'} ${isSel ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                      <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#1E40AF] focus:ring-[#1E40AF]" 
-                        checked={isSel || yaPago} disabled={yaPago} onChange={() => togglePeriodo(t)} 
+                    <label key={t} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${isSel ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200' : 'hover:bg-white dark:hover:bg-slate-800 border border-transparent'}`}>
+                      <input 
+                        type={pagoAEditar ? "radio" : "checkbox"} 
+                        name="periodo"
+                        className={`w-4 h-4 text-[#1E40AF] ${pagoAEditar ? 'rounded-full' : 'rounded'}`}
+                        checked={isSel} 
+                        onChange={() => togglePeriodo(t)} 
                       />
-                      <span className={`text-sm font-semibold ${yaPago ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                        {t} {yaPago && "(Pagado)"}
-                      </span>
+                      <span className={`text-sm font-semibold ${isSel ? 'text-[#1E40AF] dark:text-white' : 'text-slate-700 dark:text-slate-400'}`}>{t}</span>
                     </label>
                   )
                 })}
             </div>
+            {(!pagoAEditar && form.periodos.length > 1) && (
+               <p className="text-[10px] text-emerald-600 font-bold mt-2 bg-emerald-50 p-1.5 rounded text-center">
+                 El monto se dividirá en {form.periodos.length} recibos.
+               </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <input type="number" className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm dark:text-white outline-none" placeholder="Monto TOTAL" value={form.monto} onChange={e=>setForm({...form, monto: e.target.value})} required/>
-            <input type="date" className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm dark:text-white outline-none" style={{colorScheme:'dark'}} value={form.fecha_pago} onChange={e=>setForm({...form, fecha_pago: e.target.value})} required/>
+            <input type="number" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm dark:text-white outline-none focus:border-[#1E40AF]" placeholder="Monto TOTAL" value={form.monto} onChange={e=>setForm({...form, monto: e.target.value})} required/>
+            <input type="date" className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm dark:text-white outline-none focus:border-[#1E40AF]" style={{colorScheme:'dark'}} value={form.fecha_pago} onChange={e=>setForm({...form, fecha_pago: e.target.value})} required/>
           </div>
-          <div onClick={()=>ref.current?.click()} className="flex items-center gap-3 p-3 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer bg-white dark:bg-slate-900">
-            {preview ? <img src={preview} className="w-10 h-10 rounded-lg object-cover" /> : <div className="w-10 h-10 bg-slate-200 dark:bg-slate-800 rounded-lg flex justify-center items-center"><Icon name="paperclip" className="text-slate-400"/></div>}
-            <p className="text-xs text-slate-500">{preview ? "✓ Voucher listo" : "Adjuntar voucher (opcional)"}</p>
+
+          <div onClick={()=>ref.current?.click()} className="flex items-center gap-3 p-3 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:border-[#1E40AF] bg-white dark:bg-slate-800 transition-colors">
+            {preview ? <img src={preview} className="w-10 h-10 rounded-lg object-cover shadow-sm" /> : <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-lg flex justify-center items-center"><Icon name="paperclip" className="text-slate-400"/></div>}
+            <p className="text-xs text-slate-500 font-medium">{preview ? "Actualizar voucher" : "Adjuntar voucher (opcional)"}</p>
           </div>
           <input ref={ref} type="file" accept="image/*" className="hidden" onChange={e=>{if(e.target.files[0]){setFile(e.target.files[0]); setPreview(URL.createObjectURL(e.target.files[0]))}}}/>
         </form>
-        <div className="flex gap-3 mt-5"><button onClick={onClose} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold dark:text-white">Cancelar</button><button type="submit" form="qp" disabled={saving || form.periodos.length === 0} className="flex-1 py-3 bg-emerald-500 disabled:opacity-50 text-white rounded-xl font-bold">{saving?"Guardando":"Confirmar"}</button></div>
+
+        <div className="mt-5 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={onClose} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold dark:text-white hover:bg-slate-200 transition-colors">Cancelar</button>
+            <button type="submit" form="payment-form" disabled={saving || form.periodos.length === 0} className="flex-1 py-3 bg-[#1E40AF] disabled:opacity-50 text-white rounded-xl font-bold hover:bg-[#1C3FAA] transition-colors shadow-md">
+              {saving ? "Guardando..." : (pagoAEditar ? "Guardar" : "Registrar")}
+            </button>
+          </div>
+          {pagoAEditar && (
+            <button type="button" onClick={() => { if(window.confirm("¿Seguro que deseas eliminar este pago?")) { onDelete(pagoAEditar.id); onClose(); } }} className="w-full py-2.5 bg-red-50 dark:bg-red-900/20 text-red-600 font-bold rounded-xl border border-red-200 dark:border-red-800 hover:bg-red-100 transition-colors text-xs">
+               Eliminar este registro
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

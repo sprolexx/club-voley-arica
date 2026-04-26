@@ -47,6 +47,15 @@ export function FinanceView({ players = [], trimestre, setTrimestre, pagosTrimes
         {loadingFinanzas && <Icon name="spinner" className="w-5 h-5 text-[#1E40AF]" />}
       </div>
 
+      {/* --- NUEVO TÍTULO GIGANTE CENTRADO --- */}
+      <div className="py-6 text-center">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Visualizando Balance de</p>
+        <h2 className="text-3xl sm:text-5xl font-black text-[#1E40AF] dark:text-[#60A5FA] tracking-tighter uppercase drop-shadow-sm">
+          {trimestre}
+        </h2>
+      </div>
+      {/* ----------------------------------- */}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-5 rounded-2xl transition-colors">
           <p className="text-emerald-700 dark:text-emerald-400 font-bold text-sm mb-1">↑ Ingresos</p>
@@ -87,15 +96,56 @@ export function FinanceView({ players = [], trimestre, setTrimestre, pagosTrimes
                   <p className="font-bold text-sm text-[#111827] dark:text-white">{p.nombre_completo}</p>
                 </div>
                 {pagoMap[p.id] ? (
-                  <button 
-                    onClick={() => onQuickPay(p)} 
-                    className="px-4 py-1.5 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-400 text-xs font-bold rounded-lg border border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-200 transition-colors shadow-sm flex items-center gap-1"
-                    title="Ver detalles de pago"
-                  >
-                    Pagado <Icon name="eye" className="w-3 h-3 ml-1" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {/* 1. BOTÓN VER (Ojo) */}
+                    {pagoMap[p.id].comprobante_url ? (
+                      <a 
+                        href={pagoMap[p.id].comprobante_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="p-2 bg-sky-50 dark:bg-sky-900/30 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800"
+                        title="Ver comprobante"
+                      >
+                        <Icon name="eye" className="w-4 h-4" />
+                      </a>
+                    ) : (
+                      <div className="p-2 opacity-20 cursor-not-allowed" title="Sin comprobante"><Icon name="eye" className="w-4 h-4" /></div>
+                    )}
+
+                    {/* 2. BOTÓN DESCARGAR (Download) */}
+                    {pagoMap[p.id].comprobante_url ? (
+                      <button 
+                        onClick={() => {
+                          // Importamos la función de descarga de los helpers
+                          import("../utils/helpers").then(m => m.descargarImagen(pagoMap[p.id].comprobante_url, `Voucher_${p.nombre_completo}_${trimestre}.jpg`))
+                        }}
+                        className="p-2 bg-slate-50 dark:bg-slate-800 text-slate-500 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700"
+                        title="Descargar imagen"
+                      >
+                        <Icon name="download" className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <div className="p-2 opacity-20 cursor-not-allowed" title="Sin comprobante"><Icon name="download" className="w-4 h-4" /></div>
+                    )}
+
+                    {/* 3. BOTÓN EDITAR (Lápiz) */}
+                    <button 
+                      onClick={() => onQuickPay({ player: p, pagoAEditar: pagoMap[p.id] })} 
+                      className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-xl hover:bg-emerald-100 transition-colors border border-emerald-200 dark:border-emerald-800 flex items-center gap-1 ml-1"
+                      title="Editar registro"
+                    >
+                      <span className="text-[10px] font-black uppercase tracking-tighter hidden sm:inline">Pagado</span>
+                      <Icon name="edit" className="w-4 h-4" />
+                    </button>
+                  </div>
                 ) : (
-                  <button onClick={() => onQuickPay(p)} className="px-4 py-1.5 bg-amber-500 text-black text-xs font-bold rounded-lg hover:bg-amber-400 transition-colors shadow-sm">Cobrar</button>
+                  /* BOTÓN COBRAR (Si no ha pagado) */
+                  <button 
+                    onClick={() => onQuickPay({ player: p, pagoAEditar: null })} 
+                    className="px-4 py-2 bg-amber-500 text-black text-xs font-bold rounded-xl hover:bg-amber-400 transition-colors shadow-sm flex items-center gap-1.5"
+                  >
+                    <Icon name="plus" className="w-3.5 h-3.5" /> Cobrar
+                  </button>
                 )}
               </div>
             ))}
