@@ -7,6 +7,7 @@ import { Icon } from "./components/Icon";
 import { Toast, StatusDot } from "./components/UI";
 import { FinanceView } from "./views/FinanceView";
 import { PlayerDetailsModal, PlayerFormPanel, PaymentModal, DeleteModal } from "./modals/PlayerModals";
+import { TacticalBoardView } from "./views/TacticalBoardView";
 
 async function uploadSingleImage(file, bucket, folder, typeSuffix) {
   if (!file) return null;
@@ -32,7 +33,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [currentView, setCurrentView] = useState("plantel");
-  const [isDarkMode, setIsDarkMode]   = useState(false); // <--- MODO CLARO POR DEFECTO
+  const [isDarkMode, setIsDarkMode]   = useState(false); 
   const [players, setPlayers]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState("");
@@ -53,7 +54,7 @@ export default function App() {
   
   const [viewingPlayer, setViewingPlayer] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [paymentModalConfig, setPaymentModalConfig] = useState(null); // Para el PaymentModal
+  const [paymentModalConfig, setPaymentModalConfig] = useState(null);
   
   const [trimestre, setTrimestre]               = useState(getCurrentTrimestre());
   const [pagosTrimestre, setPagosTrimestre]     = useState([]);
@@ -63,9 +64,26 @@ export default function App() {
   const [loadingPagosModal, setLoadingPagosModal] = useState(false);
   const [pagosJugadorModal, setPagosJugadorModal] = useState([]);
 
-  // Estados para el Historial
   const [historialJugadorModal, setHistorialJugadorModal] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
+
+  // -----------------------------------------------------
+  // NUEVOS ESTADOS PERSISTENTES PARA LA PIZARRA TÁCTICA
+  // -----------------------------------------------------
+  const [lineup, setLineup] = useState({ 1: null, 2: null, 3: null, 4: null, 5: null, 6: null });
+  const [isServing, setIsServing] = useState(true);
+  const [numerosCancha, setNumerosCancha] = useState({});
+  const [asistencia, setAsistencia] = useState({});
+
+  // Precargar asistencia cuando cargan los jugadores por primera vez
+  useEffect(() => {
+    if (players.length > 0 && Object.keys(asistencia).length === 0) {
+      // Inicializamos a TODOS como ausentes (false) por defecto
+      setAsistencia(players.reduce((acc, p) => ({ ...acc, [p.id]: false }), {}));
+    }
+  }, [players, asistencia]);
+
+  // -----------------------------------------------------
 
   const mostrarToast = useCallback((message, type = "success") => { 
     setToast({ message, type }); 
@@ -132,7 +150,7 @@ export default function App() {
   useEffect(() => { 
     if(viewingPlayer?.id) {
       fetchPagosJugador(viewingPlayer.id); 
-      fetchHistorialJugador(viewingPlayer.id); // Llamamos al historial cuando abres el modal
+      fetchHistorialJugador(viewingPlayer.id); 
     }
   }, [viewingPlayer, fetchPagosJugador, fetchHistorialJugador]);
 
@@ -182,29 +200,17 @@ export default function App() {
 
       if (editingId) {
         const originalPlayer = players.find(p => p.id === editingId);
-        const { error } = await supabase.from("jugadores").update(payload).eq("id", editingId);
-        if (error) throw error;
-        
-        // Registrar Historial si el estado cambió
+        await supabase.from("jugadores").update(payload).eq("id", editingId);
         if (originalPlayer && originalPlayer.estado !== payload.estado) {
           await supabase.from("historial_estados").insert([{
-             jugador_id: editingId,
-             estado_anterior: originalPlayer.estado || 'activo',
-             estado_nuevo: payload.estado,
-             motivo: 'Actualización manual de ficha'
+             jugador_id: editingId, estado_anterior: originalPlayer.estado || 'activo', estado_nuevo: payload.estado, motivo: 'Actualización manual de ficha'
           }]);
         }
       } else {
-        const { data, error } = await supabase.from("jugadores").insert([payload]).select().single();
-        if (error) throw error;
+        const { data } = await supabase.from("jugadores").insert([payload]).select().single();
         jugadorGuardadoId = data.id;
-        
-        // Registrar creación como primer historial
         await supabase.from("historial_estados").insert([{
-           jugador_id: jugadorGuardadoId,
-           estado_anterior: null,
-           estado_nuevo: payload.estado,
-           motivo: 'Ingreso al club'
+           jugador_id: jugadorGuardadoId, estado_anterior: null, estado_nuevo: payload.estado, motivo: 'Ingreso al club'
         }]);
       }
       
@@ -216,51 +222,27 @@ export default function App() {
   const handleSoftDelete = async (player) => {
     try {
       await supabase.from("jugadores").update({ estado: 'inactivo' }).eq("id", player.id);
-      
-      // Registrar baja en el historial
       await supabase.from("historial_estados").insert([{
-         jugador_id: player.id,
-         estado_anterior: player.estado || 'activo',
-         estado_nuevo: 'inactivo',
-         motivo: 'Baja o eliminación de jugador'
+         jugador_id: player.id, estado_anterior: player.estado || 'activo', estado_nuevo: 'inactivo', motivo: 'Baja o eliminación de jugador'
       }]);
-      
       fetchPlayers(); setDeleteConfirm(null); mostrarToast("Jugador desactivado");
     } catch { mostrarToast("Error al desactivar", "error"); }
   };
 
   const handleSavePago = async (jugadorId, pagoForm, file, profesionalName, editPagoId = null) => {
-
     try {
-      // Si suben una foto nueva, la guardamos
       let url = file ? await uploadSingleFile(file, BUCKET_COMPROBANTES, jugadorId, profesionalName) : null;
-      
-      const payload = { 
-        jugador_id: jugadorId, 
-        periodo: pagoForm.periodo, 
-        monto: parseInt(pagoForm.monto), 
-        fecha_pago: pagoForm.fecha_pago 
-      };
-      
-      // Solo sobreescribimos la URL del comprobante si subieron uno nuevo
+      const payload = { jugador_id: jugadorId, periodo: pagoForm.periodo, monto: parseInt(pagoForm.monto), fecha_pago: pagoForm.fecha_pago };
       if (url) payload.comprobante_url = url;
 
-      if (editPagoId) {
-        // MODO EDICIÓN: Actualiza el registro existente
-        await supabase.from("pagos").update(payload).eq("id", editPagoId);
-      } else {
-        // MODO CREACIÓN: Inserta uno nuevo
-        await supabase.from("pagos").insert([payload]);
-      }
+      if (editPagoId) await supabase.from("pagos").update(payload).eq("id", editPagoId);
+      else await supabase.from("pagos").insert([payload]);
 
       fetchFinanzas(trimestre); 
       if (viewingPlayer?.id === jugadorId) fetchPagosJugador(jugadorId);
       mostrarToast(editPagoId ? "Pago actualizado correctamente" : "Pago registrado exitosamente"); 
       return true;
-    } catch { 
-      mostrarToast("Error al procesar el pago", "error"); 
-      return false; 
-    }
+    } catch { mostrarToast("Error al procesar el pago", "error"); return false; }
   };
 
   const handleDeletePago = async (id) => {
@@ -269,9 +251,7 @@ export default function App() {
       fetchFinanzas(trimestre);
       if (viewingPlayer?.id) fetchPagosJugador(viewingPlayer.id);
       mostrarToast("Pago eliminado correctamente");
-    } catch {
-      mostrarToast("Error al eliminar", "error");
-    }
+    } catch { mostrarToast("Error al eliminar", "error"); }
   };
 
   const handleSaveCompra = async (compra, file, profesionalName) => {
@@ -293,9 +273,7 @@ export default function App() {
         <div className="min-h-screen bg-[#FDFDFE] dark:bg-[#030611] flex items-center justify-center p-4 font-sans transition-colors">
           <form onSubmit={handleLogin} className="bg-white dark:bg-[#0B1120] border border-[#E5E7EB] dark:border-[#1E293B] p-8 rounded-3xl shadow-2xl w-full max-w-sm space-y-6">
             <div className="text-center space-y-3">
-              <div className="bg-[#1E40AF] w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
-                <Icon name="volleyball" className="text-white w-8 h-8" />
-              </div>
+              <div className="bg-[#1E40AF] w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-lg"><Icon name="volleyball" className="text-white w-8 h-8" /></div>
               <h1 className="text-2xl font-display font-black text-[#1E40AF] dark:text-white tracking-tight">CLUB UNION VOLEY</h1>
               <p className="text-sm text-[#6B7280] dark:text-[#9CA3AF]">Ingresa para gestionar el club</p>
             </div>
@@ -337,21 +315,14 @@ export default function App() {
 
   let groupedPlayers = {};
   if (groupBy === "posicion") {
-    // Inicializamos los 5 buckets vacíos para mantener el orden
     CATEGORIAS_PRINCIPALES.forEach(cat => groupedPlayers[cat] = []);
     groupedPlayers["Sin Posición"] = [];
-
     displayPlayers.forEach(p => {
-      // Solo tomamos la primera posición (Principal)
       const posPrincipal = p.posicion && p.posicion.length > 0 ? p.posicion[0] : null;
       const cat = getCategoriaName(posPrincipal);
       if (groupedPlayers[cat]) groupedPlayers[cat].push(p);
     });
-
-    // Limpiamos las listas vacías para que no estorben
-    Object.keys(groupedPlayers).forEach(k => {
-      if (groupedPlayers[k].length === 0) delete groupedPlayers[k];
-    });
+    Object.keys(groupedPlayers).forEach(k => { if (groupedPlayers[k].length === 0) delete groupedPlayers[k]; });
   } else {
     groupedPlayers = { "Todos los Jugadores": displayPlayers };
   }
@@ -364,14 +335,15 @@ export default function App() {
         <header className="sticky top-0 z-30 bg-white/95 dark:bg-[#030611]/95 border-b border-[#E5E7EB] dark:border-[#1E293B] p-4 transition-colors">
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
             <h1 className="text-2xl font-black font-display text-[#1E40AF] dark:text-white tracking-tighter flex items-center gap-2"><div className="bg-[#1E40AF] p-1.5 rounded-lg"><Icon name="volleyball" className="w-5 h-5 text-white"/></div> CLUB UNION VOLEY</h1>
-            <div className="flex bg-[#F3F4F6] dark:bg-[#0B1120] p-1 rounded-xl border border-[#E5E7EB] dark:border-[#1E293B]">
+            <div className="flex bg-[#F3F4F6] dark:bg-[#0B1120] p-1 rounded-xl border border-[#E5E7EB] dark:border-[#1E293B] shadow-sm">
                 <button onClick={() => setCurrentView("plantel")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "plantel" ? "bg-[#1E40AF] text-white shadow-sm" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Plantel</button>
                 <button onClick={() => setCurrentView("finanzas")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "finanzas" ? "bg-[#1E40AF] text-white shadow-sm" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Finanzas</button>
+                <button onClick={() => setCurrentView("partido")} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${currentView === "partido" ? "bg-[#1E40AF] text-white shadow-sm" : "text-[#6B7280] hover:text-[#111827] dark:hover:text-white"}`}>Pizarra</button>
             </div>
             <div className="flex gap-2 w-full sm:w-auto justify-end">
-              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 bg-[#F3F4F6] dark:bg-[#0B1120] text-[#1E40AF] rounded-xl hover:scale-105 transition-transform"><Icon name={isDarkMode?"sun":"moon"} className="w-5 h-5"/></button>
+              <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2.5 bg-[#F3F4F6] dark:bg-[#0B1120] text-[#1E40AF] rounded-xl hover:scale-105 transition-transform border border-slate-200 dark:border-slate-800"><Icon name={isDarkMode?"sun":"moon"} className="w-5 h-5"/></button>
               <button onClick={abrirNuevo} className="px-4 py-2 bg-[#1E40AF] text-white font-bold rounded-xl flex items-center gap-2 shadow-lg hover:bg-[#1C3FAA] transition-colors"><Icon name="plus" className="w-4 h-4"/> <span className="hidden sm:block">Nuevo</span></button>
-              <button onClick={handleLogout} className="p-2.5 bg-red-50 dark:bg-red-500/10 text-red-600 rounded-xl hover:bg-red-100 transition-colors" title="Cerrar sesión"><Icon name="close" className="w-5 h-5"/></button>
+              <button onClick={handleLogout} className="p-2.5 bg-red-50 dark:bg-red-500/10 text-red-600 rounded-xl hover:bg-red-100 transition-colors border border-red-100 dark:border-red-900/50" title="Cerrar sesión"><Icon name="close" className="w-5 h-5"/></button>
             </div>
           </div>
         </header>
@@ -413,12 +385,12 @@ export default function App() {
                          <div key={p.id} className="p-4 border-b border-[#F3F4F6] dark:border-[#1E293B] flex items-center justify-between hover:bg-[#F9FAFB] dark:hover:bg-[#111827] transition-colors cursor-pointer" onClick={()=>{setViewingPlayer(p)}}>
                            <div className="flex items-center gap-4">
                              <StatusDot status={p?.estado} />
-                             <div className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E293B] overflow-hidden hidden sm:block shadow-sm">
+                             <div className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E293B] overflow-hidden hidden sm:block shadow-sm border border-slate-200 dark:border-slate-700">
                                {(p?.foto_perfil_url || p?.foto_url) ? <img src={p.foto_perfil_url || p.foto_url} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center"><Icon name="user" className="w-5 h-5 text-gray-400"/></div>}
                              </div>
                              <div>
                                <p className="font-bold text-[#111827] dark:text-white text-sm group-hover:text-[#1E40AF] transition-colors">{p?.nombre_completo}</p>
-                               <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mt-0.5">{p?.rut} • {calcularEdad(p?.fecha_nacimiento)} años {p?.posicion && `• ${p.posicion}`}</p>
+                               <p className="text-xs text-[#6B7280] dark:text-[#9CA3AF] mt-0.5">{p?.rut} • {calcularEdad(p?.fecha_nacimiento)} años {p?.posicion && `• ${p.posicion[0]}`}</p>
                              </div>
                            </div>
                            <div className="flex gap-2">
@@ -437,14 +409,31 @@ export default function App() {
               <FinanceView players={players} trimestre={trimestre} setTrimestre={setTrimestre} pagosTrimestre={pagosTrimestre} comprasTrimestre={comprasTrimestre} loadingFinanzas={loadingFinanzas} onSavePago={handleSavePago} onSaveCompra={handleSaveCompra} onDeleteCompra={handleDeleteCompra} onQuickPay={setPaymentModalConfig} />
             </div>
           )}
+
+          {/* --- VISTA PIZARRA TÁCTICA (Usando los estados elevados) --- */}
+          {currentView === "partido" && (
+            <div style={{ animation: "fadeIn .35s ease" }}>
+              <TacticalBoardView 
+                players={players} 
+                lineup={lineup} 
+                setLineup={setLineup}
+                isServing={isServing} 
+                setIsServing={setIsServing}
+                numeros={numerosCancha} 
+                setNumeros={setNumerosCancha}
+                asistencia={asistencia} 
+                setAsistencia={setAsistencia}
+              />
+            </div>
+          )}
+          {/* ----------------------------------------------------------- */}
+
         </main>
 
         <PlayerFormPanel show={showForm} editingId={editingId} form={form} setForm={setForm} errors={errors} setErrors={setErrors} previews={photoPreviews} onPhotoChange={handlePhotoChange} onSubmit={handleSaveJugador} onClose={() => setShowForm(false)} submitting={submitting} />
         
-        {/* Modal de Detalles (Actualizado sin OnSavePago ya que es Solo Lectura) */}
         <PlayerDetailsModal player={viewingPlayer} onClose={() => setViewingPlayer(null)} onEdit={abrirEdicion} onDelete={setDeleteConfirm} pagos={pagosJugadorModal} pagosLoading={loadingPagosModal} historial={historialJugadorModal} historialLoading={loadingHistorial} />
         
-      {/* EL NUEVO MODAL DE PAGOS */}
         <PaymentModal config={paymentModalConfig} trimestreActual={trimestre} onClose={() => setPaymentModalConfig(null)} onSave={handleSavePago} onDelete={handleDeletePago} />
 
         <DeleteModal player={deleteConfirm} onConfirm={handleSoftDelete} onCancel={() => setDeleteConfirm(null)} />
