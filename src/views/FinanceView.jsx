@@ -153,6 +153,7 @@ export function FinanceView({ players = [], trimestre, setTrimestre, pagosTrimes
         </div>
       )}
 
+      {/* REEMPLAZA TODO DESDE AQUÍ HASTA EL FINAL */}
       {tab === "compras" && (
         <div className="bg-white dark:bg-[#0B1120] rounded-2xl border border-[#E5E7EB] dark:border-[#1E293B] p-5 shadow-sm">
           {!showCompraForm ? (
@@ -179,19 +180,45 @@ export function FinanceView({ players = [], trimestre, setTrimestre, pagosTrimes
               </div>
             </form>
           )}
+
           <div className="mt-6 divide-y divide-[#F3F4F6] dark:divide-[#1E293B]">
             {comprasTrimestre.length === 0 && !showCompraForm && <p className="text-sm text-center py-6 text-[#6B7280]">No hay egresos en este trimestre.</p>}
             {comprasTrimestre.map(c => (
-              <div key={c.id} className="py-4 flex justify-between items-center group">
+              <div key={c.id} className="py-4 flex justify-between items-center group border-b border-slate-50 dark:border-slate-800/50 last:border-0">
                 <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-500"><Icon name="arrow_down" className="w-4 h-4"/></div>
-                   <div><p className="font-bold text-sm text-[#111827] dark:text-white">{c.producto}</p><p className="text-xs text-gray-500">{formatearFecha(c.fecha_compra)}</p></div>
+                   <div className="w-9 h-9 rounded-xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center text-red-500 border border-red-100 dark:border-red-800/50 shadow-sm"><Icon name="arrow_down" className="w-5 h-5"/></div>
+                   <div>
+                     <p className="font-bold text-sm text-[#111827] dark:text-white">{c.producto}</p>
+                     <p className="text-[11px] text-gray-500 font-medium">{formatearFecha(c.fecha_compra)}</p>
+                   </div>
                 </div>
+                
                 <div className="flex items-center gap-3">
-                  <span className="font-bold text-red-500">-{formatPeso(c.monto)}</span>
-                  <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    {c.comprobante_url && <a href={c.comprobante_url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded hover:bg-sky-100 text-sky-600"><Icon name="eye" className="w-4 h-4"/></a>}
-                    <button onClick={()=>onDeleteCompra(c.id)} className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded hover:bg-red-100 text-red-600"><Icon name="trash" className="w-4 h-4"/></button>
+                  <span className="font-black text-red-500 text-sm">-{formatPeso(c.monto)}</span>
+                  
+                  {/* BOTONES SIEMPRE VISIBLES PARA MÓVIL Y PC */}
+                  <div className="flex gap-1.5 ml-2">
+                    {c.comprobante_url ? (
+                      <a 
+                        href={c.comprobante_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="p-2 bg-sky-50 dark:bg-sky-900/30 text-sky-600 rounded-xl hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800"
+                        title="Ver voucher"
+                      >
+                        <Icon name="eye" className="w-4 h-4"/>
+                      </a>
+                    ) : (
+                      <div className="p-2 opacity-20 cursor-not-allowed text-slate-400" title="Sin voucher"><Icon name="eye" className="w-4 h-4" /></div>
+                    )}
+                    
+                    <button 
+                      onClick={() => { if(window.confirm("¿Seguro que deseas eliminar este gasto?")) onDeleteCompra(c.id) }} 
+                      className="p-2 bg-red-50 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-100 transition-colors border border-red-100 dark:border-red-800"
+                      title="Eliminar registro"
+                    >
+                      <Icon name="trash" className="w-4 h-4"/>
+                    </button>
                   </div>
                 </div>
               </div>
